@@ -262,20 +262,8 @@
             file_dest: "{{ reaction_platform_path }}/reaction",
           }
         - {
-            file_src: "{{ proxy_path }}/example-storefront/docker-compose.override.yml",
-            file_dest: "{{ reaction_platform_path }}/example-storefront",
-          }
-        - {
             file_src: "{{ proxy_path }}/reaction-admin/docker-compose.override.yml",
             file_dest: "{{ reaction_platform_path }}/reaction-admin",
-          }
-        - {
-            file_src: "{{ proxy_path }}/reaction-hydra/docker-compose.override.yml",
-            file_dest: "{{ reaction_platform_path }}/reaction-hydra",
-          }
-        - {
-            file_src: "{{ proxy_path }}/reaction-identity/docker-compose.override.yml",
-            file_dest: "{{ reaction_platform_path }}/reaction-identity",
           }
 
     - name: "Set the desired domain in all docker-compose.override.yml files"
@@ -285,10 +273,7 @@
         replace: "{{ domain }}"
       loop:
         - "{{ reaction_platform_path }}/reaction/docker-compose.override.yml"
-        - "{{ reaction_platform_path }}/example-storefront/docker-compose.override.yml"
         - "{{ reaction_platform_path }}/reaction-admin/docker-compose.override.yml"
-        - "{{ reaction_platform_path }}/reaction-hydra/docker-compose.override.yml"
-        - "{{ reaction_platform_path }}/reaction-identity/docker-compose.override.yml"
 
     - name: "Set Reaction's environment variables"
       lineinfile:

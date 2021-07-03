@@ -8,9 +8,10 @@
   remote_user: root
   gather_facts: true
   vars:
-    do_auth_token: "93b8372a394936d61384cf379533be26651020e999ec4d1ecc217fb21c74f927"
+    do_auth_token: ""
     domain: "treble.bg"
     email: "tedraykov@gmail.com"
+    shop_id: "cmVhY3Rpb24vc2hvcDpjdXJFSHRNeDU2N2pTdzN3SA=="
 
     create_user: reaction
     copy_local_key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/git_id.pub') }}"
@@ -159,11 +160,13 @@
         repo: "https://github.com/airfitbg/reaction-development-platform.git"
         dest: /home/{{ create_user }}/{{reaction_dir}}
         version: trunk
+        force: yes
 
     - git:
         repo: "https://github.com/airfitbg/proxy-traefik.git"
         dest: /home/{{ create_user }}/{{proxy_dir}}
         version: trunk
+        force: yes
 
     - name: Change owner of the Reaction Platform and proxy to the newly created user
       command: "chown -R {{create_user}}:{{create_user}} {{reaction_dir}} {{proxy_dir}}"
@@ -199,9 +202,17 @@
 
     - name: Create Docker network named web
       command: docker network create web
+      register: result
+      failed_when:
+        - '"network with name" not in result.stderr'
+        - '"already exists" not in result.stderr'
 
     - name: Create Docker network named internal
       command: docker network create internal
+      register: result
+      failed_when:
+        - '"network with name" not in result.stderr'
+        - '"already exists" not in result.stderr'
 
     - name: "Set DO Auth Token in Traefik's docker-compose.yml"
       replace:
@@ -265,6 +276,10 @@
             file_src: "{{ proxy_path }}/reaction-admin/docker-compose.override.yml",
             file_dest: "{{ reaction_platform_path }}/reaction-admin",
           }
+        - {
+            file_src: "{{ proxy_path }}/storefront/docker-compose.override.yml",
+            file_dest: "{{ reaction_platform_path }}/storefront",
+          }
 
     - name: "Set the desired domain in all docker-compose.override.yml files"
       replace:
@@ -274,12 +289,33 @@
       loop:
         - "{{ reaction_platform_path }}/reaction/docker-compose.override.yml"
         - "{{ reaction_platform_path }}/reaction-admin/docker-compose.override.yml"
+        - "{{ reaction_platform_path }}/storefront/docker-compose.override.yml"
 
     - name: "Set Reaction's environment variables"
       lineinfile:
         path: "{{ reaction_platform_path }}/reaction/.env"
         regexp: "^ROOT_URL"
         line: "ROOT_URL=https://api.{{ domain }}"
+
+    - name: "Set the example storefront's environment variables"
+      lineinfile:
+        path: "{{ reaction_platform_path }}/storefront/.env"
+        regexp: "^{{ item.variable }}"
+        line: "{{ item.variable }}={{ item.value }}"
+      loop:
+        - {
+            variable: "REACTION_API_DOMAIN",
+            value: "api.{{ domain }}",
+          }
+        - {
+            variable: "REACTION_SHOP_ID",
+            value: "{{shop_id}}"
+          }
+        - {
+          variable: "COMMERCE_PROVIDER",
+          value: "reactioncommerce"
+        }
+        
 
     - name: "Set the Reaction admin UI service environment variables"
       lineinfile:

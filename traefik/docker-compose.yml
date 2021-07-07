@@ -16,7 +16,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      - DO_AUTH_TOKEN=YOUR_DIGITALOCEAN_AUTH_TOKEN
+      - VULTR_API_KEY=YOUR_VULTR_AUTH_TOKEN
       - REACTION_SHOP_ID=YOUR_SHOP_ID
     volumes:
       - /etc/localtime:/etc/localtime:ro

@@ -16,8 +16,10 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      - VULTR_API_KEY=YOUR_VULTR_AUTH_TOKEN
-      - REACTION_SHOP_ID=YOUR_SHOP_ID
+      - OVH_APPLICATION_KEY=OVH_APPLICATION_KEY_VALUE 
+      - OVH_APPLICATION_SECRET=OVH_APPLICATION_SECRET_VALUE
+      - OVH_CONSUMER_KEY=OVH_CONSUMER_KEY_VALUE
+      - OVH_ENDPOINT=ovh-eu
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -27,8 +29,6 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.traefik.entrypoints=http"
       - "traefik.http.routers.traefik.rule=Host(`traefik.example.com`)"
-      # - "traefik.http.middlewares.traefik-auth.basicauth.users=USER:PASSWORD"
-      # - "traefik.http.routers.traefik-secure.middlewares=traefik-auth"
       - "traefik.http.middlewares.traefik-https-redirect.redirectscheme.scheme=https"
       - "traefik.http.routers.traefik.middlewares=traefik-https-redirect"
       - "traefik.http.routers.traefik-secure.entrypoints=https"

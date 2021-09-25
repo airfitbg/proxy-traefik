@@ -1,28 +1,27 @@
-###########################################################################################################
-# Playbook: Initial Server Setup for the Reaction Platform on a Ubuntu 18.4 Digital Ocean Droplet.
-# This playbook will also configure and docker-compose based deployment of the Reaction platform.
-###################################################################################################################
-
 ---
 - hosts: all
-  remote_user: root
+  remote_user: ubuntu
   gather_facts: true
   vars:
     do_auth_token: ""
+    erp_admin_root_password: ""
+    mongo_username: ""
+    mongo_password: ""
+    mariadb_username: ""
+    mariadb_password: ""
+    user_name: "ubuntu"
     domain: "treble.bg"
     email: "tedraykov@gmail.com"
-    shop_id: "cmVhY3Rpb24vc2hvcDpjdXJFSHRNeDU2N2pTdzN3SA=="
-
-    create_user: reaction
-    copy_local_key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/git_id.pub') }}"
-    docker_compose_version: "1.25.4"
-    nodejs_version: "12.x"
+    copy_local_key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}"
+    docker_compose_version: "1.29.2"
+    nodejs_version: "14.x"
     proxy_dir: proxy
-    proxy_path: "/home/{{ create_user }}/{{ proxy_dir }}"
+    proxy_path: "/home/{{ user_name }}/{{ proxy_dir }}"
+    traefik_path: "/home/{{ user_name }}/{{ proxy_dir }}/traefik"
     reaction_dir: reaction-development-platform
-    reaction_platform_path: "/home/{{create_user}}/{{reaction_dir}}"
-    traefik_admin_user: reaction
-    traefik_path: "/home/{{ create_user }}/{{ proxy_dir }}/traefik"
+    reaction_platform_path: "/home/{{ user_name }}/{{reaction_dir}}"
+    erpnext_dir: "erpnext"
+    erpnext_path: "/home/{{ user_name }}/ {{ erpnext_dir }}"
 
   tasks:
     - name: Make sure we have a 'wheel' group
@@ -43,27 +42,11 @@
         line: "%wheel ALL=(ALL) NOPASSWD: ALL"
         validate: "/usr/sbin/visudo -cf %s"
 
-    - name: Create a new regular user with sudo privileges
-      user:
-        name: "{{ create_user }}"
-        state: present
-        groups: wheel, docker
-        append: true
-        create_home: true
-        shell: /bin/zsh
-
     - name: Set authorized key for remote user
       authorized_key:
-        user: "{{ create_user }}"
+        user: "{{ user_name }}"
         state: present
         key: "{{ copy_local_key }}"
-
-    - name: Disable password authentication for root
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        state: present
-        regexp: "^#?PermitRootLogin"
-        line: "PermitRootLogin prohibit-password"
 
     - name: Update apt
       apt: update_cache=yes
@@ -158,7 +141,7 @@
 
     - git:
         repo: "https://github.com/airfitbg/reaction-development-platform.git"
-        dest: /home/{{ create_user }}/{{reaction_dir}}
+        dest: /home/{{ user_name }}/{{reaction_dir}}
         version: trunk
         force: yes
 
@@ -168,32 +151,38 @@
         version: trunk
         force: yes
 
+    - git:
+        repo: "https://github.com/airfitbg/frappe_docker.git"
+        dest: {{ erpnext_path }}
+        version: develop
+        force: yes
+
     - name: Change owner of the Reaction Platform and proxy to the newly created user
-      command: "chown -R {{create_user}}:{{create_user}} {{reaction_dir}} {{proxy_dir}}"
+      command: "chown -R {{user_name}}:{{user_name}} {{reaction_dir}} {{proxy_dir}}"
       args:
         warn: false
-        chdir: /home/{{ create_user }}
+        chdir: /home/{{ user_name }}
 
     - name: Change permissions of the source code directories
-      command: "chmod -R 755 {{reaction_dir}} {{proxy_dir}}"
+      command: "chmod -R 755 {{reaction_dir}} {{proxy_dir}} {{erpnext_dir}}"
       args:
         warn: false
-        chdir: /home/{{ create_user }}
+        chdir: /home/{{ user_name }}
 
     - name: "In the Reaction development platform directory use HTTPS protocol to clone repositories"
       become: yes
-      become_user: "{{ create_user }}"
+      become_user: "{{ user_name }}"
       replace:
-        path: "/home/{{create_user}}/{{reaction_dir}}/config.mk"
+        path: "/home/{{user_name}}/{{reaction_dir}}/config.mk"
         regexp: "git@github.com:"
         replace: "https://github.com"
 
     - name: "Build the Reaction Platform"
       become: yes
-      become_user: "{{ create_user }}"
+      become_user: "{{ user_name }}"
       command: make
       args:
-        chdir: "/home/{{create_user}}/{{reaction_dir}}"
+        chdir: "/home/{{user_name}}/{{reaction_dir}}"
 
     - name: "Stop all Reaction development platform containers"
       command: make stop
@@ -272,6 +261,10 @@
             file_src: "{{ proxy_path }}/reaction-admin/docker-compose.override.yml",
             file_dest: "{{ reaction_platform_path }}/reaction-admin",
           }
+        - {
+          file_src: "{{ proxy_path }}/erpnext/docker-compose.override.yml",
+          file_dest: "{{ erpnext_path }}",
+        }
 
     - name: "Set the desired domain in all docker-compose.override.yml files"
       replace:
@@ -281,6 +274,22 @@
       loop:
         - "{{ reaction_platform_path }}/reaction/docker-compose.override.yml"
         - "{{ reaction_platform_path }}/reaction-admin/docker-compose.override.yml"
+        - "{{ erpnext_path }}/docker-compose.override.yml"
+
+    - name: "Set initial MongoDB credentials for Reaction database"
+      replace:
+        path: "{{ erpnext_path }}/docker-compose.override.yaml"
+        regexp: "{{ item.variable }}"
+        replace: "{{ item.value }}"
+      loop:
+        - {
+          variable: "MONGO_ROOT_USERNAME",
+          value: {{ mongo_username }}
+        }
+        - {
+          variable: "MONGO_ROOT_PASSWORD",
+          value: {{ mongo_password }}
+        }
 
     - name: "Set Reaction's environment variables"
       lineinfile:
@@ -315,6 +324,42 @@
             value: "https://api.{{ domain }}/graphql"
           }
 
+    - name: "Create .env for ERPNext"
+      copy:
+        src: "{{ erpnext_path }}/env-production"
+        dest: "{{ erpnext_path }}/.env"
+        owner: foo
+        group: foo
+        mode: '0644'
+
+    - name: "Set EPRNext's environment variables"
+      lineinfile:
+        path: "{{ erpnext_path }}/.env"
+        regexp: "^{{ item.variable }}"
+        line: "{{ item.variable }}={{ item.value }}"
+      loop:
+        - {
+            variable: "LETSENCRYPT_EMAIL",
+            value: "{{ email }}",
+          }
+        - {
+            variable: "ERP_SITE_NAME",
+            value: "erp.{{ domain }}",
+          }
+        - {
+            variable: "MYSQL_ROOT_PASSWORD",
+            value: "{{ mariadb_password }}",
+          }
+        - {
+            variable: "DB_ROOT_USER",
+            value: "erp.{{ mariadb_username }}",
+          }
+        - {
+              variable: "ADMIN_PASSWORD",
+              value: "erp.{{ erp_admin_root_password }}",
+          }
+
+
     - name: "Remove all Reaction Platform containers"
       command: make rm
       args:
@@ -331,11 +376,11 @@
         dest: /tmp
 
     - name: Install Lazydocker
-      command: zsh /tmp/install_update_linux.sh
+      command: bash /tmp/install_update_linux.sh
 
     - name: Add Docker Compose aliases
       blockinfile:
-        path: "/home/{{ create_user }}/.zshrc"
+        path: "/home/{{ create_user }}/.bashrc"
         block: |
           alias dc='docker-compose'
           # Bring all services down
@@ -355,7 +400,7 @@
           # Show all running containers, with horizontal paging
           alias dps='docker ps -a | less -S'
 
-    - name: "Source .zshrc"
-      shell: "source /home/{{ create_user }}/.zshrc"
+    - name: "Source .bashrc"
+      shell: "source /home/{{ create_user }}/.bashrc"
       args:
-        executable: /bin/zsh
+        executable: /bin/bash

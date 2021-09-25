@@ -22,5 +22,5 @@ certificatesResolvers:
       email: YOUR_EMAIL
       storage: acme.json
       dnsChallenge:
-        provider: vultr
+        provider: ovh
         delayBeforeCheck: 0

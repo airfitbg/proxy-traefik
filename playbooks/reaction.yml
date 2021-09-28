@@ -144,13 +144,13 @@
 
     - git:
         repo: "https://github.com/airfitbg/reaction-development-platform.git"
-        dest: "/root/{{reaction_dir}}"
+        dest: "{{ reaction_platform_path }}"
         force: yes
 
     - git:
         repo: "https://github.com/airfitbg/proxy-traefik.git"
         dest: "{{ proxy_path }}"
-        version: trunk
+        version: ovh
         force: yes
 
     - git:

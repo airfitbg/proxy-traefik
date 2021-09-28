@@ -1,9 +1,11 @@
 ---
 - hosts: all
-  remote_user: ubuntu
+  remote_user: root
   gather_facts: true
   vars:
-    do_auth_token: ""
+    ovh_ak: ""
+    ovh_as: ""
+    ovh_ck: ""
     erp_admin_root_password: ""
     mongo_username: ""
     mongo_password: ""
@@ -12,18 +14,56 @@
     user_name: "ubuntu"
     domain: "treble.bg"
     email: "tedraykov@gmail.com"
-    copy_local_key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}"
+    copy_local_key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/git_id.pub') }}"
     docker_compose_version: "1.29.2"
     nodejs_version: "14.x"
     proxy_dir: proxy
-    proxy_path: "/home/{{ user_name }}/{{ proxy_dir }}"
-    traefik_path: "/home/{{ user_name }}/{{ proxy_dir }}/traefik"
+    proxy_path: "/root/{{ proxy_dir }}"
+    traefik_path: "/root/{{ proxy_dir }}/traefik"
     reaction_dir: reaction-development-platform
-    reaction_platform_path: "/home/{{ user_name }}/{{reaction_dir}}"
+    reaction_platform_path: "/root/{{ reaction_dir }}"
     erpnext_dir: "erpnext"
-    erpnext_path: "/home/{{ user_name }}/ {{ erpnext_dir }}"
+    erpnext_path: "/root/{{ erpnext_dir }}"
 
   tasks:
+    - name: Validate required vars are set
+      fail:
+        msg: "Variable {{ item.key }} should be set"
+      when: item.value == ""
+      loop:
+        - {
+          key: "ovh_ak",
+          value: "{{ ovh_ak }}"
+        }
+        - {
+          key: "ovh_as",
+          value: "{{ ovh_as }}"
+        }
+        - {
+          key: "ovh_ck",
+          value: "{{ ovh_ck }}"
+        }
+        - {
+          key: "erp_admin_root_password",
+          value: "{{ erp_admin_root_password }}"
+        }
+        - {
+          key: "mongo_username",
+          value: "{{ mongo_username }}"
+        }
+        - {
+          key: "mongo_password",
+          value: "{{ mongo_password }}"
+        }
+        - {
+          key: "mariadb_username",
+          value: "{{ mariadb_username }}"
+        }
+        - {
+          key: "mariadb_password",
+          value: "{{ mariadb_password }}"
+        }
+
     - name: Make sure we have a 'wheel' group
       group:
         name: wheel
@@ -41,12 +81,6 @@
         regexp: "^%wheel"
         line: "%wheel ALL=(ALL) NOPASSWD: ALL"
         validate: "/usr/sbin/visudo -cf %s"
-
-    - name: Set authorized key for remote user
-      authorized_key:
-        user: "{{ user_name }}"
-        state: present
-        key: "{{ copy_local_key }}"
 
     - name: Update apt
       apt: update_cache=yes
@@ -68,18 +102,13 @@
           "vim",
         ]
 
-    - name: Add Docker GPG apt Key
-      apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
+    - name: Download Docker install script
+      get_url:
+        url: https://get.docker.com
+        dest: /tmp/get-docker.sh
         
-    - name: Add Docker Repository
-      apt_repository:
-        repo: deb https://download.docker.com/linux/ubuntu focal stable
-        state: present
-
-    - name: Update apt and install docker-ce
-      apt: update_cache=yes name=docker-ce state=latest
+    - name: Install Docker
+      shell: get-docker.sh
 
     - name: Ensure docker-compose is installed and available
       get_url:
@@ -108,81 +137,38 @@
       tags: ["skip_ansible_lint"]
 
     - name: Ensure Node.js and npm are installed.
-      apt: "name=nodejs={{ nodejs_version|regex_replace('x', '') }}* state=present"
-
-    - name: "Yarn | GPG"
-      apt_key:
-        url: https://dl.yarnpkg.com/debian/pubkey.gpg
-        state: present
-
-    - name: "Yarn | Ensure Debian sources list file exists"
-      file:
-        path: /etc/apt/sources.list.d/yarn.list
-        owner: root
-        mode: "0644"
-        state: touch
-
-    - name: "Yarn | Ensure Debian package is in sources list"
-      lineinfile:
-        dest: /etc/apt/sources.list.d/yarn.list
-        regexp: "deb http://dl.yarnpkg.com/debian/ stable main"
-        line: "deb http://dl.yarnpkg.com/debian/ stable main"
-        state: present
-
-    - name: "Yarn | Update APT cache"
-      apt:
-        update_cache: yes
+      apt: "name=nodejs state=present"
 
     - name: "Install Yarn"
-      apt:
-        name: yarn
-        state: present
-        install_recommends: no
+      command: npm install --global yarn
 
     - git:
         repo: "https://github.com/airfitbg/reaction-development-platform.git"
-        dest: /home/{{ user_name }}/{{reaction_dir}}
-        version: trunk
+        dest: "/root/{{reaction_dir}}"
         force: yes
 
     - git:
         repo: "https://github.com/airfitbg/proxy-traefik.git"
-        dest: /home/{{ create_user }}/{{proxy_dir}}
+        dest: "{{ proxy_path }}"
         version: trunk
         force: yes
 
     - git:
         repo: "https://github.com/airfitbg/frappe_docker.git"
-        dest: {{ erpnext_path }}
+        dest: '{{ erpnext_path }}'
         version: develop
         force: yes
 
-    - name: Change owner of the Reaction Platform and proxy to the newly created user
-      command: "chown -R {{user_name}}:{{user_name}} {{reaction_dir}} {{proxy_dir}}"
-      args:
-        warn: false
-        chdir: /home/{{ user_name }}
-
-    - name: Change permissions of the source code directories
-      command: "chmod -R 755 {{reaction_dir}} {{proxy_dir}} {{erpnext_dir}}"
-      args:
-        warn: false
-        chdir: /home/{{ user_name }}
-
     - name: "In the Reaction development platform directory use HTTPS protocol to clone repositories"
-      become: yes
-      become_user: "{{ user_name }}"
       replace:
-        path: "/home/{{user_name}}/{{reaction_dir}}/config.mk"
+        path: "{{reaction_platform_path}}/config.mk"
         regexp: "git@github.com:"
         replace: "https://github.com"
 
     - name: "Build the Reaction Platform"
-      become: yes
-      become_user: "{{ user_name }}"
       command: make
       args:
-        chdir: "/home/{{user_name}}/{{reaction_dir}}"
+        chdir: "{{reaction_platform_path}}"
 
     - name: "Stop all Reaction development platform containers"
       command: make stop
@@ -199,11 +185,24 @@
       register: result
       ignore_errors: yes
 
-    - name: "Set DO Auth Token in Traefik's docker-compose.yml"
+    - name: "Set OVH Auth Credentials in Traefik's docker-compose.yml"
       replace:
         path: "{{ traefik_path}}/docker-compose.yml"
-        regexp: "YOUR_VULTR_AUTH_TOKEN"
-        replace: "{{ do_auth_token }}"
+        regexp: "{{ item.variable }}"
+        replace: "{{ item.value }}"
+      loop:
+        - {
+          variable: "OVH_APPLICATION_KEY_VALUE",
+          value: "{{ ovh_ak }}"
+        }
+        - {
+          variable: "OVH_APPLICATION_SECRET_VALUE",
+          value: "{{ ovh_as }}"
+        }
+        - {
+          variable: "OVH_CONSUMER_KEY_VALUE",
+          value: "{{ ovh_ck }}"
+        }
 
     - name: "Set config files path in Traefik's docker-compose.yml"
       replace:
@@ -284,11 +283,11 @@
       loop:
         - {
           variable: "MONGO_ROOT_USERNAME",
-          value: {{ mongo_username }}
+          value: "{{ mongo_username }}"
         }
         - {
           variable: "MONGO_ROOT_PASSWORD",
-          value: {{ mongo_password }}
+          value: "{{ mongo_password }}"
         }
 
     - name: "Set Reaction's environment variables"
